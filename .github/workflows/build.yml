@@ -1,48 +1,71 @@
-name: Kernel Build
+name: Kernel Builder
 
 on:
   workflow_dispatch:
     inputs:
-      branch:
-        description: 'Kernel Branch to Build'
+      KERNEL_GIT:
+        description: 'Link to your kernel source'
+        required: true
+        default: 'https://github.com/omansh-krishn/your-repo'
+      KERNEL_BRANCH:
+        description: 'Kernel branch'
         required: true
         default: 'main'
+      ENABLE_KSU:
+        type: boolean
+        description: 'Patch KernelSU v0.9.5?'
+        required: false
+        default: true
+      DEFCONFIG:
+        description: 'Name of the defconfig'
+        required: true
+        default: 'nexus_defconfig'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Kernel Source
+      - name: Checkout Builder
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch }}
-          fetch-depth: 1
 
-      - name: Install Dependencies
+      - name: Debloat and Setup Environment
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential flex gcc-aarch64-linux-gnu \
           gcc-arm-linux-gnueabi g++-aarch64-linux-gnu g++-arm-linux-gnueabi \
-          libssl-dev git perl make zip liblz4-tool libncurses-dev curl
+          libssl-dev git perl make zip liblz4-tool libncurses-dev curl libelf-dev
 
       - name: Download Zyc Clang
         run: |
           git clone https://gitlab.com/clangsantoni/zyc_clang -b 14 --depth=1 $HOME/toolchain
 
-      - name: Setup KernelSU
+      - name: Clone Kernel Source
         run: |
-          # v0.9.5 
+          git clone ${{ github.event.inputs.KERNEL_GIT }} -b ${{ github.event.inputs.KERNEL_BRANCH }} --depth=1 kernel_workspace
+
+      - name: Patch KernelSU (Advanced Method)
+        if: github.event.inputs.ENABLE_KSU == 'true'
+        working-directory: kernel_workspace
+        run: |
+          # Clean old patches
+          [ -L "drivers/kernelsu" ] && rm "drivers/kernelsu"
+          grep -q "kernelsu" "./drivers/Makefile" && sed -i '/kernelsu/d' "./drivers/Makefile"
+          grep -q "drivers/kernelsu/Kconfig" "./drivers/Kconfig" && sed -i '/drivers\/kernelsu\/Kconfig/d' "./drivers/Kconfig"
+          
+          # Setup via official script (v0.9.5)
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
+          echo "[+] KernelSU v0.9.5 Patched"
 
       - name: Run Build Script
         env:
           TOOLCHAIN_DIR: "/home/runner/toolchain"
+          DEFCONFIG: ${{ github.event.inputs.DEFCONFIG }}
         run: |
           chmod +x script.sh
           ./script.sh
 
-      - name: Upload Kernel Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-Zip
+          name: Kernel-${{ github.event.inputs.DEFCONFIG }}
           path: ./*.zip
