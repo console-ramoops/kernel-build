@@ -1,0 +1,48 @@
+name: Kernel Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Kernel Branch to Build'
+        required: true
+        default: 'main'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+          fetch-depth: 1
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential flex gcc-aarch64-linux-gnu \
+          gcc-arm-linux-gnueabi g++-aarch64-linux-gnu g++-arm-linux-gnueabi \
+          libssl-dev git perl make zip liblz4-tool libncurses-dev curl
+
+      - name: Download Zyc Clang
+        run: |
+          git clone https://gitlab.com/clangsantoni/zyc_clang -b 14 --depth=1 $HOME/toolchain
+
+      - name: Setup KernelSU
+        run: |
+          # v0.9.5 
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
+
+      - name: Run Build Script
+        env:
+          TOOLCHAIN_DIR: "/home/runner/toolchain"
+        run: |
+          chmod +x script.sh
+          ./script.sh
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Zip
+          path: ./*.zip
